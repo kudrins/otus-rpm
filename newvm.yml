@@ -1,0 +1,30 @@
+---
+- name: start VM 
+  hosts: localhost
+  become: false
+  gather_facts: false
+  collections:
+    - community.vmware
+  tasks:
+  - name: power on
+    vmware_guest: 
+      hostname: "10.100.10.1"
+      username: "administrator@vsphere.local"
+      password: "password"
+      validate_certs: False
+      datacenter: Datacenter
+      datastore: datastore_6TB
+      folder: centos
+      template: t_centos8
+      name: centos8-rpm
+      networks:
+        - name: VMs11
+          ip: "10.100.11.102"
+          netmask: "255.255.255.0"
+          gateway: "10.100.11.254"
+      customization:
+        hostname: "centos-rpm"
+        dns_servers: [10.100.11.200]
+      state: powered-on
+    register: deploy
+

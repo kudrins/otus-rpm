@@ -1,0 +1,168 @@
+[root@centos-rpm ~]# cat /etc/*release*
+CentOS Stream release 8
+...
+
+[root@centos-rpm ~]#yum update
+#
+# установка необходимых пакетов
+[root@centos-rpm ~]# yum install -y redhat-lsb-core wget rpmdevtools rpm-build createrepo yum-utils gcc
+#
+# загрузим SRPM пкет nginx и установим
+#
+[root@centos-rpm ~]wget https://nginx.org/packages/centos/8/SRPMS/nginx-1.24.0-1.el8.ngx.src.rpm
+[root@centos-rpm ~]rpm -i nginx-1.*
+#
+# скачаем openssl и распакуем
+[root@centos-rpm ~]wget https://www.openssl.org/source/openssl-1.1.1w.tar.gz
+[root@centos-rpm ~]tar -xvf openssl-1.1.1w.tar.gz
+#
+#  2й пакет для репозитория
+[root@centos-rpm ~]wget http://mirror.centos.org/centos/8-stream/BaseOS/x86_64/os/Packages/nfs-utils-2.3.3-58.el8.x86_64.rpm
+#
+# поставим все зависимости
+[root@centos-rpm ~]yum-builddep rpmbuild/SPECS/nginx.spec
+#
+# редактируем ~/rpmbuild/SPECS/nginx.spec
+# Добавляем в строку, начинающуюся с %define BASE_CONFIGURE_ARGS в самый конец к списку параметров:
+# --with-openssl=/root/openssl-1.1.1w
+#
+# собираем RPM пакет
+[root@centos-rpm ~]rpmbuild -bb rpmbuild/SPECS/nginx.spec
+...
+Wrote: /root/rpmbuild/RPMS/x86_64/nginx-1.24.0-1.el8.ngx.x86_64.rpm
+Wrote: /root/rpmbuild/RPMS/x86_64/nginx-debuginfo-1.24.0-1.el8.ngx.x86_64.rpm
+Executing(%clean): /bin/sh -e /var/tmp/rpm-tmp.kfVjZJ
++ umask 022
++ cd /root/rpmbuild/BUILD
++ cd nginx-1.24.0
++ /usr/bin/rm -rf /root/rpmbuild/BUILDROOT/nginx-1.24.0-1.el8.ngx.x86_64
++ exit 0
+
+[root@centos-rpm ~]# ls -l rpmbuild/RPMS/x86_64
+total 6300
+-rw-r--r--. 1 root root 3840716 Dec 13 18:56 nginx-1.24.0-1.el8.ngx.x86_64.rpm
+-rw-r--r--. 1 root root 2607400 Dec 13 18:56 nginx-debuginfo-1.24.0-1.el8.ngx.x86_64.rpm
+#
+# установим пакет
+[root@centos-rpm ~]# yum localinstall -y rpmbuild/RPMS/x86_64/nginx-1.24.0-1.el8.ngx.x86_64.rpm
+Last metadata expiration check: 4:04:24 ago on Wed 13 Dec 2023 02:58:03 PM MSK.
+Dependencies resolved.
+=====================================================================================================================
+ Package               Architecture           Version                             Repository                    Size
+=====================================================================================================================
+Installing:
+ nginx                 x86_64                 1:1.24.0-1.el8.ngx                  @commandline                 3.7 M
+Transaction Summary
+=====================================================================================================================
+Install  1 Package
+Total size: 3.7 M
+Installed size: 9.4 M
+Downloading Packages:
+...
+Running transaction
+  Preparing        :                                                                                             1/1
+  Running scriptlet: nginx-1:1.24.0-1.el8.ngx.x86_64                                                             1/1
+  Installing       : nginx-1:1.24.0-1.el8.ngx.x86_64                                                             1/1
+  Running scriptlet: nginx-1:1.24.0-1.el8.ngx.x86_64                                                             1/1
+----------------------------------------------------------------------
+Thanks for using nginx!
+  Verifying        : nginx-1:1.24.0-1.el8.ngx.x86_64                                                             1/1
+Installed:
+  nginx-1:1.24.0-1.el8.ngx.x86_64
+Complete!
+#
+# проверим nginx
+[root@centos-rpm ~]# systemctl start nginx
+[root@centos-rpm ~]# systemctl status nginx
+● nginx.service - nginx - high performance web server
+   Loaded: loaded (/usr/lib/systemd/system/nginx.service; disabled; vendor preset: disabled)
+   Active: active (running) since Wed 2023-12-13 19:02:46 MSK; 11s ago
+     Docs: http://nginx.org/en/docs/
+  Process: 96060 ExecStart=/usr/sbin/nginx -c /etc/nginx/nginx.conf (code=exited, status=0/SUCCESS)
+ Main PID: 96061 (nginx)
+    Tasks: 2 (limit: 11126)
+   Memory: 1.8M
+   CGroup: /system.slice/nginx.service
+           ├─96061 nginx: master process /usr/sbin/nginx -c /etc/nginx/nginx.conf
+           └─96062 nginx: worker process
+Dec 13 19:02:46 centos-rpm systemd[1]: Starting nginx - high performance web server...
+Dec 13 19:02:46 centos-rpm systemd[1]: nginx.service: Can't open PID file /var/run/nginx.pid (yet?) after start: No >
+Dec 13 19:02:46 centos-rpm systemd[1]: Started nginx - high performance web server.
+
+[root@centos-rpm ~]# mkdir /usr/share/nginx/html/repo
+#
+# создаем репозитрий
+[root@centos-rpm ~]mkdir /usr/share/nginx/html/repo
+[root@centos-rpm ~]cp rpmbuild/RPMS/x86_64/nginx-1.24.0-1.el8.ngx.x86_64.rpm /usr/share/nginx/html/repo/
+[root@centos-rpm ~]# createrepo /usr/share/nginx/html/repo/
+Directory walk started
+Directory walk done - 2 packages
+Temporary output repo path: /usr/share/nginx/html/repo/.repodata/
+Preparing sqlite DBs
+Pool started (with 5 workers)
+Pool finished
+#
+# добавляем в /etc/nginx/conf.d/default.conf:
+    location /repo {
+        root   /usr/share/nginx/html;
+        allow all;
+        autoindex on;
+        auth_basic off;
+    }
+# проверяем синтаксис и перезапускаем nginx
+[root@centos-rpm ~]# nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+[root@centos-rpm ~]# nginx -s reload
+#
+# смотрим
+[root@centos-rpm ~]# curl -a http://localhost/repo/
+<html>
+<head><title>Index of /repo/</title></head>
+<body>
+<h1>Index of /repo/</h1><hr><pre><a href="../">../</a>
+<a href="repodata/">repodata/</a>                                                  14-Dec-2023 19:41
+<a href="nfs-utils-2.3.3-58.el8.x86_64.rpm">nfs-utils-2.3.3-58.el8.x86_64.rpm</a>  14-Dec-2023 19:40      527048
+<a href="nginx-1.24.0-1.el8.ngx.x86_64.rpm">nginx-1.24.0-1.el8.ngx.x86_64.rpm</a>  14-Dec-2023 19:39     3840668
+</pre><hr></body>
+</html>
+#
+# добавим репозиторий в /etc/yum.repos.d с приоритетом 1
+[root@centos-rpm ~]# cat >> /etc/yum.repos.d/otus.repo << EOF
+> [otus]
+> name=otus-centos
+> baseurl=http://localhost/repo/
+> gpgcheck=0
+> enabled=1
+> priority=1
+> EOF
+#
+# убедимся, что репозиторий подключился и сммотрим, что в нём
+[root@centos-rpm ~]# yum repolist enabled
+repo id                                      repo name
+appstream                                    CentOS Stream 8 - AppStream
+baseos                                       CentOS Stream 8 - BaseOS
+extras                                       CentOS Stream 8 - Extras
+extras-common                                CentOS Stream 8 - Extras common packages
+otus                                         otus-nginx
+#
+# установим пакет из репозитория otus
+[root@centos-rpm ~]#yum install nfs-utils
+otus-centos                                                                          644 kB/s | 3.0 kB     00:00
+Dependencies resolved.
+=====================================================================================================================
+ Package                       Architecture          Version                          Repository                Size
+=====================================================================================================================
+Installing:
+ nfs-utils                     x86_64                1:2.3.3-58.el8                   otus                     515 k
+Installing dependencies:
+ gssproxy                      x86_64                0.8.0-21.el8                     baseos                   119 k
+ libev                         x86_64                4.24-6.el8                       appstream                 52 k
+ libverto-libev                x86_64                0.3.2-2.el8                      appstream                 16 k
+ rpcbind                       x86_64                1.2.5-10.el8                     baseos                    70 k
+...
+Installed:
+  gssproxy-0.8.0-21.el8.x86_64           libev-4.24-6.el8.x86_64            libverto-libev-0.3.2-2.el8.x86_64
+  nfs-utils-1:2.3.3-58.el8.x86_64        rpcbind-1.2.5-10.el8.x86_64
+
+Complete!
